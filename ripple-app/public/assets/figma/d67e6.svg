@@ -1,0 +1,19 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="145.28" height="145.28" viewBox="0 0 145.28 145.28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Joining ripple" filter="url(#filter0_d_0_12)">
+<circle cx="72.64" cy="60.64" r="48.64" fill="white"/>
+<circle cx="72.64" cy="60.64" r="47.39" stroke="#176D78" stroke-width="2.5"/>
+</g>
+<defs>
+<filter id="filter0_d_0_12" x="0" y="0" width="145.28" height="145.28" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feMorphology radius="8" operator="erode" in="SourceAlpha" result="effect1_dropShadow_0_12"/>
+<feOffset dy="12"/>
+<feGaussianBlur stdDeviation="16"/>
+<feComposite in2="hardAlpha" operator="out"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0.0901961 0 0 0 0 0.278431 0 0 0 0 0.321569 0 0 0 0.121569 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_0_12"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_0_12" result="shape"/>
+</filter>
+</defs>
+</svg>

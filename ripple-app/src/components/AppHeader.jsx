@@ -19,6 +19,7 @@ export default function AppHeader({ page }) {
           Explore Ripples
         </a>
         <a href="#/how-it-works">How it Works</a>
+        <a href="#/organization/invitation">For organizations</a>
       </nav>
       <div className="header-actions">
         {page !== "login" && (

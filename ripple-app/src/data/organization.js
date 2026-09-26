@@ -1,0 +1,15 @@
+export const organization = { name: 'OC Transpo', about: 'Public transportation provider serving Ottawa.' };
+export const statuses = ['Listening', 'Under review', 'Action planned', 'In progress', 'Resolved'];
+export const feedbackOptions = ['More buses during peak hours', 'More reliable arrival times', 'Better capacity information', 'Other'];
+export const organizationRipples = [
+  { id: 'route-7', title: 'Route 7 overcrowding', voices: 138, weekly: 24, category: 'Transportation', location: 'Route 7 · Downtown Ottawa', context: 'Route 7', peak: '7:30–9:00 AM', description: 'Community members are reporting recurring overcrowding during morning commuting hours.', status: 'Listening', icon: 'imgBusFront1', acknowledged: false, updates: [], questions: [] },
+  { id: 'arrival-information', title: 'Real-time arrival information', voices: 92, weekly: 12, category: 'Transportation', location: 'Ottawa · Bus network', context: 'Digital arrival displays', peak: '4:00–6:00 PM', description: 'Community members are sharing differences between displayed arrival times and their experience at bus stops.', status: 'Under review', icon: 'imgBusFront1', acknowledged: true, updates: [{ title: 'Arrival information is under review', message: 'We are reviewing how arrival estimates are shared at stops and in journey planning tools.', status: 'Under review', date: 'Sep 24, 2026' }], questions: [] },
+  { id: 'stop-accessibility', title: 'Bus stop accessibility', voices: 64, weekly: 8, category: 'Accessibility', location: 'Ottawa · Community bus stops', context: 'Bus stop boarding areas', peak: 'Throughout the day', description: 'Community members are identifying opportunities to improve access to boarding areas and seating at bus stops.', status: 'Action planned', icon: 'imgAccessibility2', acknowledged: true, updates: [{ title: 'A community accessibility walk is planned', message: 'Our team is planning a walk with community members to understand boarding-area improvements.', status: 'Action planned', date: 'Sep 25, 2026' }], questions: [{ question: 'What would make your bus stop more accessible?', options: ['Clearer boarding areas', 'More seating', 'Better lighting', 'Other'], results: [18, 12, 8, 4], date: 'Sep 24, 2026', demo: true }] },
+];
+export function applyOrganizationAction(ripple, action) {
+  const date = action.date || new Date().toLocaleDateString('en-CA');
+  if (action.type === 'acknowledge') return { ...ripple, acknowledged: true, acknowledgedDate: date };
+  if (action.type === 'update' && statuses.includes(action.status) && action.title?.trim() && action.message?.trim()) return { ...ripple, status: action.status, updates: [...ripple.updates, { title: action.title.trim(), message: action.message.trim(), status: action.status, date }] };
+  if (action.type === 'question' && action.question?.trim() && action.options?.length >= 2 && action.options.every(option => option.trim())) return { ...ripple, questions: [...ripple.questions, { question: action.question.trim(), options: action.options.map(option => option.trim()), results: action.options.map(() => 0), date }] };
+  return ripple;
+}

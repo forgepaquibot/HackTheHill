@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import AppHeader from "./components/AppHeader";
+import Organization from "./pages/Organization";
 import Home from "./pages/Home";
 import Report from "./pages/Report";
 import ReviewReport from "./pages/ReviewReport";
@@ -40,7 +41,9 @@ export default function App() {
     return () => window.removeEventListener("hashchange", change);
   }, []);
   useEffect(() => {
-    document.title = path.startsWith("/login")
+    document.title = path.startsWith("/organization")
+      ? "Community Listening — Ripple"
+      : path.startsWith("/login")
       ? "Log in — Ripple"
       : "Ripple — Every voice can start a ripple";
     if (path === "/how-it-works") {
@@ -93,9 +96,9 @@ export default function App() {
       >
         Skip to content
       </a>
-      <AppHeader page={page} />
+      {!path.startsWith("/organization") && <AppHeader page={page} />}
       <div id="main-content" tabIndex="-1">
-        {page === "home" && <Home />}
+        {path.startsWith("/organization") ? <Organization path={path} /> : page === "home" && <Home />}
         {page === "login" && <Login />}
         {page === "report" && (
           <Report

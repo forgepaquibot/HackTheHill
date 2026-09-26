@@ -1,0 +1,20 @@
+# Ignore environment variables and secrets
+.env
+.env.local
+
+# Ignore Python dependencies and virtual environments
+venv/
+.venv/
+__pycache__/
+
+# Ignore Node.js dependencies (if applicable)
+node_modules/
+
+# Ignore OS system files
+.DS_Store
+Thumbs.db
+
+# Ignore all .env files and secret files
+*.env
+*.env.*
+tiger-cloud-ripple-credentials.env

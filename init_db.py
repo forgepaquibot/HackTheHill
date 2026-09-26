@@ -3,7 +3,6 @@ from dotenv import load_dotenv
 import psycopg2
 
 # 1. Load variables from environment file
-# If your env file has a specific name like 'tiger-cloud-ripple-credentials.env', pass it to load_dotenv()
 load_dotenv(dotenv_path="tiger-cloud-ripple-credentials.env") 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -24,24 +23,58 @@ def init_db():
         cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
         # 3. Create Core Relational Tables
-        print("Creating organizations and complaints tables...")
+        print("Creating core application tables...")
         
-        # Organizations (Companies, Government agencies, Politicians)
+        # Organizations Table (Companies, Government agencies, Politicians)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS organizations (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 name TEXT NOT NULL,
-                category TEXT NOT NULL, -- e.g., 'government', 'corporation'
-                is_verified BOOLEAN DEFAULT false
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                category TEXT NOT NULL, -- e.g., 'government', 'campaign', 'corporation'
+                is_verified BOOLEAN DEFAULT false,
+                created_at TIMESTAMPTZ DEFAULT now()
             );
+        """)
+
+        # Users Table (People submitting complaints and voting)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                is_verified BOOLEAN DEFAULT false,
+                created_at TIMESTAMPTZ DEFAULT now()
+            );
+        """)
+
+        # Topics Table (Contains topics created by AI or organizations + Vector Embedding)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS topics (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL, -- e.g., 'government', 'corporation'
+                summary_embedding vector(1536), -- Enables AI matchmaking directly against topics
+                created_at TIMESTAMPTZ DEFAULT now()
+            );
+        """)
+
+        # HNSW Index for fast AI topic matching
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS topics_embedding_hnsw_idx 
+            ON topics USING hnsw (summary_embedding vector_cosine_ops);
         """)
 
         # Complaints Table (Relational + JSONB + Vector)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS complaints (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID,
-                org_id UUID REFERENCES organizations(id),
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+                topic_id UUID REFERENCES topics(id) ON DELETE SET NULL,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
                 details JSONB DEFAULT '{}'::jsonb,
@@ -51,23 +84,49 @@ def init_db():
             );
         """)
 
-        # HNSW Index for fast AI similarity searches
+        # HNSW Index for fast complaint similarity searches
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS complaints_embedding_hnsw_idx 
             ON complaints USING hnsw (embedding vector_cosine_ops);
         """)
 
-        # 4. Create Event Stream Table for Trending Analytics
+        # 4. Social Interactions & Executive Tools
+        print("Creating voting and response tables...")
+
+        # Complaint Votes Table (1 Upvote per User per Complaint)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS complaint_votes (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                complaint_id UUID NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE(complaint_id, user_id)
+            );
+        """)
+
+        # Official Executive Responses Table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS official_responses (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                complaint_id UUID NOT NULL REFERENCES complaints(id) ON DELETE CASCADE,
+                org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+                responder_id UUID REFERENCES users(id) ON DELETE SET NULL,
+                message TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now()
+            );
+        """)
+
+        # 5. TimescaleDB Event Stream (Trending Metrics)
         print("Creating complaint events hypertable...")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS complaint_events (
                 time TIMESTAMPTZ NOT NULL,
-                complaint_id UUID REFERENCES complaints(id),
+                complaint_id UUID REFERENCES complaints(id) ON DELETE CASCADE,
                 action_type TEXT NOT NULL -- e.g., 'created', 'upvoted', 'viewed'
             );
         """)
 
-        # Convert to Timescale Hypertable if not already converted
+        # Convert to Timescale Hypertable
         cursor.execute("""
             SELECT create_hypertable('complaint_events', 'time', if_not_exists => TRUE);
         """)

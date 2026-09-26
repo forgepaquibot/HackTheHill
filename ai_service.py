@@ -15,8 +15,9 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 def get_gemini_embedding(text: str) -> list[float]:
     """Generates a 768-dimensional vector embedding using Google Gemini."""
     response = client.models.embed_content(
-        model="text-embedding-004",
+        model="gemini-embedding-001",
         contents=text,
+        config=types.EmbedContentConfig(output_dimensionality=768)
     )
     return response.embeddings[0].values
 
@@ -34,7 +35,7 @@ def generate_topic_metadata(title: str, description: str) -> dict:
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json")
     )
@@ -74,7 +75,7 @@ def evaluate_topic_alignment(cursor, topic_id: str, org_id: str, topic_title: st
     """
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json")
     )

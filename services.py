@@ -1,12 +1,12 @@
+import traceback
 from database import get_db_connection
 from ai_service import get_gemini_embedding, generate_topic_metadata, evaluate_topic_alignment
 
-SIMILARITY_THRESHOLD = 0.75
+SIMILARITY_THRESHOLD = 0.85
 
 def sync_or_create_user(user_id: str, name: str, email: str, is_verified: bool):
     """Syncs Auth0 user details into Tiger Data and auto-verifies matching organization emails."""
     conn = get_db_connection()
-    conn.autocommit = True
     cursor = conn.cursor()
     try:
         # Auto-verify organization if user email domain matches an organization's email domain
@@ -27,7 +27,17 @@ def sync_or_create_user(user_id: str, name: str, email: str, is_verified: bool):
                 is_verified = EXCLUDED.is_verified
             RETURNING id, is_verified;
         """, (user_id, name, email, is_verified))
-        return cursor.fetchone()
+        
+        user_row = cursor.fetchone()
+        
+        # Explicit transaction commit
+        conn.commit()
+        return user_row
+    except Exception as e:
+        conn.rollback()
+        print("❌ COMMIT FAILED AND ROLLED BACK!")
+        print(traceback.format_exc())
+        raise e
     finally:
         cursor.close()
         conn.close()
@@ -37,10 +47,9 @@ def process_and_match_complaint(
     title: str, 
     description: str, 
     category: str, 
-    force_submit: bool = False
+    force_submit: bool = True
 ):
     conn = get_db_connection()
-    conn.autocommit = True
     cursor = conn.cursor()
 
     try:
@@ -114,6 +123,7 @@ def process_and_match_complaint(
             if org_id:
                 evaluate_topic_alignment(cursor, topic_id, org_id, new_topic_title)
 
+        # Insert new complaint
         cursor.execute("""
             INSERT INTO complaints (user_id, topic_id, title, description, embedding, status)
             VALUES (%s, %s, %s, %s, %s::vector, 'open')
@@ -122,20 +132,53 @@ def process_and_match_complaint(
 
         complaint_id = cursor.fetchone()['id']
 
-        # Log event in TimescaleDB hypertable
+        # Log creation event in TimescaleDB hypertable
         cursor.execute("""
             INSERT INTO complaint_events (time, complaint_id, action_type)
             VALUES (now(), %s, 'created');
         """, (complaint_id,))
 
+        # Auto-add user's like to their newly posted complaint
+        cursor.execute("""
+            INSERT INTO complaint_likes (complaint_id, user_id)
+            VALUES (%s, %s)
+            ON CONFLICT (complaint_id, user_id) DO NOTHING;
+        """, (complaint_id, user_id))
+
+        # IF a match was found, auto-like all existing complaints in this topic
+        if matched_topic:
+            cursor.execute("""
+                SELECT id FROM complaints WHERE topic_id = %s AND id != %s;
+            """, (topic_id, complaint_id))
+            existing_complaints = cursor.fetchall()
+
+            for existing in existing_complaints:
+                existing_id = existing['id']
+                cursor.execute("""
+                    INSERT INTO complaint_likes (complaint_id, user_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (complaint_id, user_id) DO NOTHING;
+                """, (existing_id, user_id))
+
+                cursor.execute("""
+                    INSERT INTO complaint_events (time, complaint_id, action_type)
+                    VALUES (now(), %s, 'like');
+                """, (existing_id,))
+
+        # Commit all inserts and likes atomically
+        conn.commit()
+
         return {
             "status": "created",
             "complaint_id": complaint_id, 
             "topic_id": topic_id,
-            "message": "Complaint successfully posted."
+            "message": "Complaint successfully posted and matched topic upvoted."
         }
 
     except Exception as e:
+        conn.rollback()
+        print("❌ COMMIT FAILED AND ROLLED BACK!")
+        print(traceback.format_exc())
         return {"status": "error", "message": str(e)}
     finally:
         cursor.close()

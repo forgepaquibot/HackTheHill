@@ -18,3 +18,4 @@ Thumbs.db
 *.env
 *.env.*
 tiger-cloud-ripple-credentials.env
+simulate_user.py

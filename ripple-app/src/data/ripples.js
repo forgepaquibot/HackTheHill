@@ -87,7 +87,8 @@ export const ripples = [
 // Local preview only. Preserve the user's words rather than claiming AI analysis.
 export function prepareReview(draft) {
   return {
-    issue: draft.text.trim(),
+    title: draft.title.trim(),
+    description: draft.text.trim(),
     location: draft.location.trim() || "Not specified",
     time: "Not specified",
     category: draft.category || "Other",
@@ -102,4 +103,19 @@ export function filterRipples(items, query, category) {
         .toLowerCase()
         .includes(term),
   );
+}
+
+// Matches backend/main.py: ComplaintSubmitModel. Metadata stays out of the API body.
+export function buildComplaintPayload(review) {
+  const title = review.title.trim();
+  const description = review.description.trim();
+  if (!title || !description) {
+    throw new Error("A title and description are required.");
+  }
+  return {
+    title,
+    description,
+    category: review.category || "Other",
+    force_submit: false,
+  };
 }

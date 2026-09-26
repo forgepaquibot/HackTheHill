@@ -18,6 +18,10 @@ export default function Report({ draft, setDraft, onReview, mode }) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (!draft.title.trim()) {
+            setError("Please add a short title for your report.");
+            return;
+          }
           if (!draft.text.trim()) {
             setError("Please speak or type a little about what happened.");
             return;
@@ -25,6 +29,24 @@ export default function Report({ draft, setDraft, onReview, mode }) {
           onReview();
         }}
       >
+        <div className="report-title-field">
+          <label htmlFor="report-title">
+            Report title <span>(required)</span>
+          </label>
+          <input
+            id="report-title"
+            name="title"
+            type="text"
+            required
+            value={draft.title}
+            onChange={(event) => update("title", event.target.value)}
+            placeholder="Example: Route 7 overcrowding"
+            aria-describedby="report-title-hint"
+          />
+          <p id="report-title-hint">
+            Give your concern a short, clear name. Add the full details below.
+          </p>
+        </div>
         <VoiceToText
           value={draft.text}
           onChange={(value) => update("text", value)}

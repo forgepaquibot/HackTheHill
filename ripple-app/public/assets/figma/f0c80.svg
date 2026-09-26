@@ -1,0 +1,7 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Status marker">
+<rect x="1" y="1" width="26" height="26" rx="13" fill="#F6EEE2"/>
+<rect x="1" y="1" width="26" height="26" rx="13" stroke="#9A641E" stroke-width="2"/>
+<circle id="Current dot" cx="14" cy="14" r="5" fill="#9A641E"/>
+</g>
+</svg>

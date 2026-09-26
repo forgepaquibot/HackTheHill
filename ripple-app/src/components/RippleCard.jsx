@@ -1,5 +1,5 @@
 import { Asset, Button } from "./UI";
-export default function RippleCard({ ripple, followed, onFollow }) {
+export default function RippleCard({ ripple, followed, onFollow, organizationView = false }) {
   return (
     <article className="ripple-card">
       <div className="card-top">
@@ -28,11 +28,12 @@ export default function RippleCard({ ripple, followed, onFollow }) {
           {ripple.location}
         </p>
         <p className="metadata">
-          <strong>{ripple.voices} voices</strong>
+          <strong>{ripple.voices} {organizationView ? "community voices" : "voices"}</strong>
           <span>·</span>
           {ripple.category}
         </p>
       </div>
+      {organizationView && <p className="org-recent">↑ {ripple.weekly} new reports this week</p>}
       <div className="card-progress">
         <span className={`status-badge ${ripple.tone}`}>
           <span aria-hidden="true">●</span>
@@ -41,11 +42,11 @@ export default function RippleCard({ ripple, followed, onFollow }) {
         <small>Updated {ripple.updated}</small>
       </div>
       <div className="card-actions">
-        <a className="button" href={`#/ripple/${ripple.id}`}>
+        <a className="button" href={`#/${organizationView ? "organization/ripples" : "ripple"}/${ripple.id}`}>
           View Ripple
           <Asset screen="5:10114" name="imgArrowRight" />
         </a>
-        <Button
+        {!organizationView && <Button
           secondary
           className={`follow-button ${followed ? "following" : ""}`}
           aria-label={`${followed ? "Unfollow" : "Follow"} ${ripple.title}`}
@@ -53,7 +54,7 @@ export default function RippleCard({ ripple, followed, onFollow }) {
           onClick={onFollow}
         >
           <Asset screen="5:10114" name="imgBell" />
-        </Button>
+        </Button>}
       </div>
     </article>
   );

@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import AppHeader from "./components/AppHeader";
+import Organization from "./pages/Organization";
 import Home from "./pages/Home";
 import Report from "./pages/Report";
 import ReviewReport from "./pages/ReviewReport";
 import RippleCreated from "./pages/RippleCreated";
 import Explore from "./pages/Explore";
+import Login from "./pages/Login";
 import { prepareReview, ripples } from "./data/ripples";
 import "./App.css";
 
@@ -38,6 +40,7 @@ function getAuthToken() {
 export default function App() {
   const [path, setPath] = useState(route);
   const [draft, setDraft] = useState({
+    title: "",
     text: "",
     location: "",
     category: "",
@@ -61,7 +64,7 @@ export default function App() {
             id: userId,
             name: "Verified Citizen",
             email: `${userId}@example.com`,
-            email_verified: true, // Meets your get_verified_user FastAPI gatekeeper requirement
+            email_verified: true,
           }),
         });
       } catch (err) {
@@ -72,14 +75,21 @@ export default function App() {
     syncUserWithBackend();
   }, []);
 
+  // Listen to hash changes in URL
   useEffect(() => {
     const change = () => setPath(route());
     window.addEventListener("hashchange", change);
     return () => window.removeEventListener("hashchange", change);
   }, []);
 
+  // Page titles and scroll management
   useEffect(() => {
-    document.title = "Ripple — Every voice can start a ripple";
+    document.title = path.startsWith("/organization")
+      ? "Community Listening — Ripple"
+      : path.startsWith("/login")
+      ? "Log in — Ripple"
+      : "Ripple — Every voice can start a ripple";
+
     if (path === "/how-it-works") {
       document.getElementById("how-it-works")?.scrollIntoView();
     } else {
@@ -108,7 +118,6 @@ export default function App() {
       );
     }
 
-    // Call FastAPI backend to register like event
     if (!isFollowing) {
       try {
         const token = getAuthToken();
@@ -132,7 +141,7 @@ export default function App() {
     try {
       const token = getAuthToken();
       const payload = {
-        title: review?.issue || draft.text.slice(0, 60) || "Public Grievance",
+        title: review?.issue || draft.title || draft.text.slice(0, 60) || "Public Grievance",
         description: draft.text,
         category: draft.category || review?.category || "General",
       };
@@ -176,15 +185,20 @@ export default function App() {
     }
   }
 
-  const page = path.startsWith("/explore")
-    ? "explore"
-    : path.startsWith("/report")
-    ? "report"
-    : path === "/review"
-    ? "review"
-    : path === "/created" || path.startsWith("/ripple/")
-    ? "created"
-    : "home";
+  // Determine active view
+  const basePath = path.split("?")[0];
+  const page =
+    basePath === "/login"
+      ? "login"
+      : path.startsWith("/explore")
+      ? "explore"
+      : path.startsWith("/report")
+      ? "report"
+      : path === "/review"
+      ? "review"
+      : path === "/created" || path.startsWith("/ripple/")
+      ? "created"
+      : "home";
 
   const sample = ripples.find((r) => r.id === path.split("/")[2]);
   const result = path === "/created" ? confirmed : sample;
@@ -201,9 +215,18 @@ export default function App() {
       >
         Skip to content
       </a>
-      <AppHeader page={page} />
+
+      {!path.startsWith("/organization") && <AppHeader page={page} />}
+
       <div id="main-content" tabIndex="-1">
-        {page === "home" && <Home />}
+        {path.startsWith("/organization") ? (
+          <Organization path={path} />
+        ) : (
+          page === "home" && <Home />
+        )}
+
+        {page === "login" && <Login />}
+
         {page === "report" && (
           <Report
             draft={draft}
@@ -215,6 +238,7 @@ export default function App() {
             }}
           />
         )}
+
         {page === "review" &&
           (review ? (
             <ReviewReport
@@ -232,6 +256,7 @@ export default function App() {
               </a>
             </main>
           ))}
+
         {page === "created" &&
           (result ? (
             <RippleCreated
@@ -248,10 +273,12 @@ export default function App() {
               </a>
             </main>
           ))}
+
         {page === "explore" && (
           <Explore followed={followed} toggleFollow={toggleFollow} />
         )}
       </div>
+
       {storageError && (
         <p className="notice" role="status">
           {storageError}

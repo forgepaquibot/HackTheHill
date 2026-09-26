@@ -9,7 +9,8 @@ export default function ReviewReport({
 }) {
   const [editing, setEditing] = useState([]);
   const fields = [
-    ["issue", "Issue", "imgMessageCircle"],
+    ["title", "Title", "imgMessageCircle"],
+    ["description", "Description", "imgMessageCircle"],
     ["location", "Location", "imgMapPin"],
     ["time", "Time", "imgClock3"],
     ["category", "Category", "imgBusFront"],
@@ -33,7 +34,7 @@ export default function ReviewReport({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onConfirm();
+          if (review.title.trim() && review.description.trim()) onConfirm();
         }}
       >
         <section className="summary-card">
@@ -75,6 +76,18 @@ export default function ReviewReport({
                           <option key={c}>{c}</option>
                         ))}
                       </select>
+                    ) : key === "description" ? (
+                      <textarea
+                        id={`review-${key}`}
+                        aria-labelledby={`label-${key}`}
+                        required
+                        rows={4}
+                        maxLength={5000}
+                        value={review[key]}
+                        onChange={(event) =>
+                          setReview({ ...review, [key]: event.target.value })
+                        }
+                      />
                     ) : (
                       <input
                         id={`review-${key}`}
@@ -114,7 +127,10 @@ export default function ReviewReport({
           )}
         </section>
         <div className="submit-area">
-          <Button type="submit" disabled={!review.issue.trim()}>
+          <Button
+            type="submit"
+            disabled={!review.title.trim() || !review.description.trim()}
+          >
             <Asset screen="5:9757" name="imgCheck1" />
             Looks right
           </Button>

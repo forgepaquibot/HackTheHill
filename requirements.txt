@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+psycopg2-binary
+google-genai
+python-dotenv
+pydantic
+requests
+python-jose[cryptography]

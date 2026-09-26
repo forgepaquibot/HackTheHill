@@ -1,25 +1,54 @@
 from database import get_db_connection
-from ai_services import get_gemini_embedding, generate_master_topic, evaluate_alignment
+from ai_service import get_gemini_embedding, generate_topic_metadata, evaluate_topic_alignment
 
 SIMILARITY_THRESHOLD = 0.75
 
-def process_complaint_service(user_id: str, title: str, description: str, category: str):
+def sync_or_create_user(user_id: str, name: str, email: str, is_verified: bool):
+    """Syncs Auth0 user details into Tiger Data and auto-verifies matching organization emails."""
+    conn = get_db_connection()
+    conn.autocommit = True
+    cursor = conn.cursor()
+    try:
+        # Auto-verify organization if user email domain matches an organization's email domain
+        if "@" in email:
+            domain = email.split("@")[1]
+            cursor.execute("""
+                UPDATE organizations 
+                SET is_verified = TRUE 
+                WHERE email ILIKE %s;
+            """, (f"%@{domain}",))
+
+        cursor.execute("""
+            INSERT INTO users (id, name, email, is_verified)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE 
+            SET name = EXCLUDED.name, 
+                email = EXCLUDED.email, 
+                is_verified = EXCLUDED.is_verified
+            RETURNING id, is_verified;
+        """, (user_id, name, email, is_verified))
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+def process_and_match_complaint(
+    user_id: str, 
+    title: str, 
+    description: str, 
+    category: str, 
+    force_submit: bool = False
+):
     conn = get_db_connection()
     conn.autocommit = True
     cursor = conn.cursor()
 
     try:
-        # Double check user verification inside service boundary
-        cursor.execute("SELECT is_verified FROM users WHERE id = %s;", (user_id,))
-        user_row = cursor.fetchone()
-        if not user_row or not user_row['is_verified']:
-            raise ValueError("User email is not verified.")
-
         full_text = f"{title}\n{description}"
         embedding = get_gemini_embedding(full_text)
         embedding_str = str(embedding)
 
-        # 1. Search existing topics via pgvector cosine distance
+        # Vector search using Cosine Distance operator (<=>)
         cursor.execute("""
             SELECT id, title, (1 - (summary_embedding <=> %s::vector)) AS similarity
             FROM topics
@@ -32,11 +61,40 @@ def process_complaint_service(user_id: str, title: str, description: str, catego
 
         if matched_topic:
             topic_id = matched_topic['id']
+            similarity_pct = float(matched_topic['similarity'])
+
+            cursor.execute("""
+                SELECT COUNT(id) AS complaint_count 
+                FROM complaints 
+                WHERE topic_id = %s;
+            """, (topic_id,))
+            stats = cursor.fetchone()
+            complaint_count = stats['complaint_count'] if stats else 0
+
+            if not force_submit:
+                return {
+                    "status": "similar_found",
+                    "message": "A matching topic already exists.",
+                    "topic_id": topic_id,
+                    "topic_title": matched_topic['title'],
+                    "similarity": round(similarity_pct, 4),
+                    "existing_complaints_count": complaint_count
+                }
+
+            cursor.execute("""
+                SELECT id FROM complaints 
+                WHERE user_id = %s AND topic_id = %s;
+            """, (user_id, topic_id))
+            
+            if cursor.fetchone():
+                return {
+                    "status": "exists", 
+                    "message": "You already have an active complaint under this master topic."
+                }
         else:
-            # 2. No match found -> Generate new topic with Gemini
-            ai_result = generate_master_topic(title, description)
-            new_topic_title = ai_result.get('topic_title', title)
-            target_org_name = ai_result.get('target_org_name')
+            metadata = generate_topic_metadata(title, description)
+            new_topic_title = metadata.get('topic_title', title)
+            target_org_name = metadata.get('target_org_name')
 
             org_id = None
             if target_org_name:
@@ -45,70 +103,40 @@ def process_complaint_service(user_id: str, title: str, description: str, catego
                 if org_row:
                     org_id = org_row['id']
 
-            # Insert new topic row
             cursor.execute("""
-                SELECT id FROM topics 
-                WHERE org_id IS NOT DISTINCT FROM %s AND title = %s AND category = %s
-            """, (org_id, new_topic_title, category))
-            existing_topic = cursor.fetchone()
+                INSERT INTO topics (org_id, title, category, summary_embedding)
+                VALUES (%s, %s, %s, %s::vector)
+                RETURNING id;
+            """, (org_id, new_topic_title, category, embedding_str))
+            
+            topic_id = cursor.fetchone()['id']
 
-            if existing_topic:
-                topic_id = existing_topic['id']
-            else:
-                cursor.execute("""
-                    INSERT INTO topics (org_id, title, category, summary_embedding)
-                    VALUES (%s, %s, %s, %s::vector)
-                    RETURNING id;
-                """, (org_id, new_topic_title, category, embedding_str))
-                topic_id = cursor.fetchone()['id']
-
-            # 3. Calculate alignment score if organization has priorities registered
             if org_id:
-                cursor.execute("SELECT title, description FROM organization_priorities WHERE org_id = %s;", (org_id,))
-                priorities = cursor.fetchall()
-                if priorities:
-                    priorities_text = "\n".join([f"- {p['title']}: {p['description']}" for p in priorities])
-                    alignment_res = evaluate_alignment(priorities_text, new_topic_title)
-                    score = alignment_res.get("alignment_score", 0.0)
-                    rationale = alignment_res.get("alignment_rationale", "")
-                    
-                    cursor.execute("""
-                        UPDATE topics 
-                        SET alignment_score = %s, alignment_rationale = %s
-                        WHERE id = %s;
-                    """, (score, rationale, topic_id))
+                evaluate_topic_alignment(cursor, topic_id, org_id, new_topic_title)
 
-        # 4. Save or Update the complaint record (Enforces 1 complaint per user per topic via UPSERT)
         cursor.execute("""
             INSERT INTO complaints (user_id, topic_id, title, description, embedding, status)
-            VALUES (%s, %s, %s, %s, %s::vector, 'pending_review')
-            ON CONFLICT (user_id, topic_id) 
-            DO UPDATE SET 
-                title = EXCLUDED.title,
-                description = EXCLUDED.description,
-                embedding = EXCLUDED.embedding,
-                status = 'pending_review'
-            RETURNING id, (xmax = 0) AS inserted;
+            VALUES (%s, %s, %s, %s, %s::vector, 'open')
+            RETURNING id;
         """, (user_id, topic_id, title, description, embedding_str))
-        
-        result = cursor.fetchone()
-        complaint_id = result['id']
-        is_new_insertion = result['inserted']
 
-        # 5. Record event in Timescale hypertable for real-time trending/analytics
-        action_type = 'created' if is_new_insertion else 'updated'
+        complaint_id = cursor.fetchone()['id']
+
+        # Log event in TimescaleDB hypertable
         cursor.execute("""
             INSERT INTO complaint_events (time, complaint_id, action_type)
-            VALUES (now(), %s, %s);
-        """, (complaint_id, action_type))
+            VALUES (now(), %s, 'created');
+        """, (complaint_id,))
 
         return {
+            "status": "created",
             "complaint_id": complaint_id, 
-            "topic_id": topic_id, 
-            "action": action_type,
-            "message": "Complaint created successfully." if is_new_insertion else "Existing complaint updated successfully for this topic."
+            "topic_id": topic_id,
+            "message": "Complaint successfully posted."
         }
 
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
     finally:
         cursor.close()
         conn.close()

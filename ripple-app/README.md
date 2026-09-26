@@ -4,7 +4,13 @@ Responsive React + Vite implementation of the Ripple Figma design, with locally 
 
 ## Run
 
-From `ripple-app`:
+Set `ELEVENLABS_API_KEY` in a root `.env` file or in the backend process environment. Do not use a `VITE_`-prefixed key; browser code must not contain the ElevenLabs API key. Start the API from the repository root:
+
+```sh
+uvicorn main:app --reload
+```
+
+Then, from `ripple-app`:
 
 ```sh
 npm install
@@ -30,9 +36,9 @@ Navigation supports browser back/forward. Layouts adapt to the desktop and mobil
 
 ## Demo boundaries
 
-There is no backend. Report text, photo selection, and edited details remain in React memory and reset on refresh. Nothing is submitted to a city. Review preserves the user's text rather than pretending to perform AI analysis. A new report shows one voice, not a fabricated community match. Photos are selected locally and not uploaded. Text reports can be downloaded after confirmation.
+Report text, photo selection, and edited details remain in React memory and reset on refresh. Nothing is submitted to a city. The backend only issues short-lived ElevenLabs Scribe tokens for voice transcription; review preserves the user's text rather than pretending to perform AI analysis. A new report shows one voice, not a fabricated community match. Photos are selected locally and not uploaded. Text reports can be downloaded after confirmation.
 
-Community reports are fixtures. Follows are saved in localStorage, with a session-only fallback if storage is blocked; no notifications are sent. Map and live nearby search are not connected and explain that in the interface. English is the available language; the accessibility menu offers larger text. Speech recognition uses the browser's speech service, requires microphone permission, and falls back to typing if unavailable.
+Community reports are fixtures. Follows are saved in localStorage, with a session-only fallback if storage is blocked; no notifications are sent. Map and live nearby search are not connected and explain that in the interface. English is the available language; the accessibility menu offers larger text. Voice transcription uses ElevenLabs Scribe, requires microphone permission and a configured backend API key, and falls back to typing if unavailable.
 
 ## Validation
 

@@ -7,10 +7,13 @@ from pydantic import BaseModel
 from typing import Optional
 from jose import jwt
 from dotenv import load_dotenv
+
+load_dotenv()
+load_dotenv(dotenv_path="tiger-cloud-ripple-credentials.env")
+
 from database import get_db_connection
 from services import process_and_match_complaint, sync_or_create_user
 
-load_dotenv(dotenv_path="tiger-cloud-ripple-credentials.env")
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
 AUTH0_API_AUDIENCE = os.getenv("AUTH0_API_AUDIENCE")
 
@@ -111,6 +114,51 @@ def register_user(user: UserRegisterModel):
         return {"status": "success", "user_id": result['id'], "is_verified": result['is_verified']}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/scribe-token")
+def create_scribe_token():
+    api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="ElevenLabs is not configured. Set ELEVENLABS_API_KEY on the backend.",
+        )
+
+    try:
+        response = requests.post(
+            "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
+            headers={"xi-api-key": api_key},
+            timeout=10,
+        )
+        response.raise_for_status()
+        token = response.json().get("token")
+    except requests.HTTPError as error:
+        if error.response is not None and error.response.status_code in (401, 403):
+            raise HTTPException(
+                status_code=502,
+                detail="ElevenLabs rejected the API key or its permissions. Check ELEVENLABS_API_KEY.",
+            ) from error
+        raise HTTPException(
+            status_code=502,
+            detail="ElevenLabs could not issue a transcription token.",
+        ) from error
+    except requests.RequestException as error:
+        raise HTTPException(
+            status_code=502,
+            detail="ElevenLabs could not issue a transcription token.",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="ElevenLabs returned an invalid token response.",
+        ) from error
+
+    if not token:
+        raise HTTPException(
+            status_code=502,
+            detail="ElevenLabs returned an invalid token response.",
+        )
+    return {"token": token}
 
 @app.post("/api/complaints")
 def submit_or_edit_complaint(payload: ComplaintSubmitModel, user_id: str = Depends(get_verified_user)):

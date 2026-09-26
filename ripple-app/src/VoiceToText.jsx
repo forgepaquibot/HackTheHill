@@ -1,14 +1,43 @@
 import { useEffect, useRef } from "react";
 import { Asset } from "./components/UI";
+// Ensure the path below matches exactly where you saved File 1
 import useSpeechRecognition from "./hooks/useSpeechRecognition";
+
 export default function VoiceToText({ value, onChange, mode }) {
   const textarea = useRef(null);
-  const speech = useSpeechRecognition((text) =>
-    onChange((previous) => [previous, text].filter(Boolean).join(" ")),
+  const partialText = useRef("");
+
+  const speech = useSpeechRecognition(
+    (text) => {
+      const previousPartial = partialText.current;
+      partialText.current = "";
+      onChange((previous) => {
+        const base = previousPartial && previous.endsWith(previousPartial)
+          ? previous.slice(0, -previousPartial.length).trimEnd()
+          : previous;
+        return [base, text].filter(Boolean).join(" ");
+      });
+    },
+    (text) => {
+      const previousPartial = partialText.current;
+      partialText.current = text;
+      onChange((previous) => {
+        const base = previousPartial && previous.endsWith(previousPartial)
+          ? previous.slice(0, -previousPartial.length).trimEnd()
+          : previous;
+        return [base, text].filter(Boolean).join(" ");
+      });
+    },
   );
+
+  useEffect(() => {
+    if (!speech.listening && !speech.isConnecting) partialText.current = "";
+  }, [speech.isConnecting, speech.listening]);
+
   useEffect(() => {
     if (mode === "type") textarea.current?.focus();
   }, [mode]);
+
   return (
     <div className="report-methods">
       <section className="speak-card">
@@ -16,33 +45,37 @@ export default function VoiceToText({ value, onChange, mode }) {
           <Asset name="imgMic" />
           Speak
         </h2>
+
+        {/* CSS: .listening for green/pulse effect, .busy for disabled state */}
         <div className={`voice-control ${speech.listening ? "listening" : ""}`}>
           <div className="voice-ring">
             <button
               type="button"
-              className="microphone"
-              aria-label={speech.listening ? "Stop speaking" : "Start speaking"}
-              aria-pressed={speech.listening}
+              className={`microphone ${speech.isConnecting ? "busy" : ""}`}
+              aria-label={speech.listening ? "Stop" : "Start"}
               onClick={speech.toggle}
+              disabled={speech.isConnecting}
             >
               <Asset name="imgMic1" />
             </button>
           </div>
         </div>
-        <h3>{speech.listening ? "Listening…" : "Tap to start speaking."}</h3>
-        <p aria-live="polite">
-          {speech.listening
-            ? "Take your time. Tap again when you’re finished."
-            : speech.supported
-              ? "Take your time. Tap again when you’re finished."
-              : "Voice input is unavailable in this browser. You can type your report."}
-        </p>
+        
+        <h3>
+          {speech.isConnecting 
+            ? "Connecting to AI..." 
+            : speech.listening 
+              ? "Listening…" 
+              : "Tap to begin."}
+        </h3>
+        
         {speech.error && (
-          <p className="error" role="alert">
+          <p className="error" role="alert" style={{ color: 'red', fontWeight: '500' }}>
             {speech.error}
           </p>
         )}
       </section>
+
       <section className="type-card">
         <h2>
           <Asset name="imgPencil" />
@@ -51,17 +84,14 @@ export default function VoiceToText({ value, onChange, mode }) {
         <div className="text-box">
           <textarea
             ref={textarea}
-            aria-label="Tell us what happened"
-            placeholder="Example: The number 7 bus has been overcrowded every morning this week…"
+            aria-label="Description"
+            placeholder="Tell us what happened..."
             value={value}
             maxLength={5000}
             onChange={(e) => onChange(e.target.value)}
           />
-          <small>
-            {value ? `${value.length} / 5,000` : "Use your own words"}
-          </small>
+          <small>{value?.length || 0} / 5,000</small>
         </div>
-        <p>Share as much or as little as you’d like.</p>
       </section>
     </div>
   );

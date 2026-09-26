@@ -1,68 +1,56 @@
-import { useEffect, useRef, useState } from "react";
-export default function useSpeechRecognition(onTranscript) {
-  const [listening, setListening] = useState(false),
-    [error, setError] = useState("");
-  const recognition = useRef(null),
-    callback = useRef(onTranscript);
-  useEffect(() => {
-    callback.current = onTranscript;
-  }, [onTranscript]);
-  const supported =
-    typeof window !== "undefined" &&
-    Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
-  useEffect(() => {
-    const API = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!API) return;
-    const instance = new API();
-    instance.continuous = true;
-    instance.interimResults = false;
-    instance.lang = "en-CA";
-    instance.onstart = () => setListening(true);
-    instance.onend = () => setListening(false);
-    instance.onresult = (e) => {
-      let text = "";
-      for (let i = e.resultIndex; i < e.results.length; i++)
-        if (e.results[i].isFinal) text += e.results[i][0].transcript + " ";
-      if (text.trim()) callback.current(text.trim());
-    };
-    instance.onerror = (e) => {
-      setListening(false);
-      setError(
-        e.error === "not-allowed"
-          ? "Microphone access was denied. You can allow it in your browser or type below."
-          : "Speech recognition stopped. Please try again or type your report.",
-      );
-    };
-    recognition.current = instance;
-    return () => {
-      instance.onresult = null;
-      instance.onend = null;
-      instance.onerror = null;
-      instance.onstart = null;
-      instance.abort();
-      recognition.current = null;
-    };
-  }, []);
-  function toggle() {
-    setError("");
-    if (!recognition.current) {
-      setError(
-        "Speech recognition is unavailable in this browser. You can type your report.",
-      );
-      return;
-    }
+import { useState } from "react";
+import { useScribe } from "@elevenlabs/react";
+
+const MODEL_ID = "scribe_v2_realtime";
+
+export default function useSpeechRecognition(onTranscript, onPartialTranscript) {
+  const [requestError, setRequestError] = useState("");
+  const scribe = useScribe({
+    modelId: MODEL_ID,
+    onPartialTranscript: ({ text }) => {
+      if (text?.trim()) onPartialTranscript?.(text.trim());
+    },
+    onCommittedTranscript: ({ text }) => {
+      if (text?.trim()) onTranscript(text.trim());
+    },
+  });
+
+  const toggle = async () => {
     try {
-      if (listening) recognition.current.stop();
-      else recognition.current.start();
-    } catch {
-      setError("The microphone could not start. Please try again.");
+      setRequestError("");
+      if (scribe.isConnected) {
+        scribe.disconnect();
+        return;
+      }
+
+      const response = await fetch("/api/scribe-token", { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.token) {
+        throw new Error(result.detail || "Could not start voice transcription.");
+      }
+
+      await scribe.connect({
+        token: result.token,
+        modelId: MODEL_ID,
+        microphone: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+    } catch (error) {
+      setRequestError(
+        error instanceof Error ? error.message : "Could not start voice transcription.",
+      );
     }
-  }
+  };
+
   return {
-    listening,
-    error,
-    supported,
+    listening: scribe.isConnected || scribe.isTranscribing,
+    isConnecting: scribe.status === "connecting",
+    error: requestError || scribe.error || "",
+    supported: typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia),
     toggle,
-    stop: () => recognition.current?.stop(),
+    partialText: scribe.partialTranscript,
+    stop: scribe.disconnect,
   };
 }

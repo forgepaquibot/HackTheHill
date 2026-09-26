@@ -57,7 +57,7 @@ def init_db():
                 org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
                 title TEXT NOT NULL,
                 category TEXT NOT NULL, -- e.g., 'government', 'corporation'
-                summary_embedding vector(1536), -- Enables AI matchmaking directly against topics
+                summary_embedding vector(768), -- Enables AI matchmaking directly against topics
                 created_at TIMESTAMPTZ DEFAULT now()
             );
         """)
@@ -78,9 +78,12 @@ def init_db():
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
                 details JSONB DEFAULT '{}'::jsonb,
-                embedding vector(1536), -- Vector embedding for AI similarity matching
+                embedding vector(768), 
                 status TEXT DEFAULT 'pending_review',
-                created_at TIMESTAMPTZ DEFAULT now()
+                created_at TIMESTAMPTZ DEFAULT now(),
+                
+                -- Enforce 1 complaint per user per topic
+                UNIQUE(user_id, topic_id) 
             );
         """)
 

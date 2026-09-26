@@ -5,7 +5,8 @@ import Report from "./pages/Report";
 import ReviewReport from "./pages/ReviewReport";
 import RippleCreated from "./pages/RippleCreated";
 import Explore from "./pages/Explore";
-import { prepareReview, ripples } from "./data/ripples";
+import Login from "./pages/Login";
+import { buildComplaintPayload, prepareReview, ripples } from "./data/ripples";
 import "./App.css";
 function route() {
   return window.location.hash.slice(1) || "/";
@@ -23,6 +24,7 @@ function readFollows() {
 export default function App() {
   const [path, setPath] = useState(route),
     [draft, setDraft] = useState({
+      title: "",
       text: "",
       location: "",
       category: "",
@@ -38,7 +40,9 @@ export default function App() {
     return () => window.removeEventListener("hashchange", change);
   }, []);
   useEffect(() => {
-    document.title = "Ripple — Every voice can start a ripple";
+    document.title = path.startsWith("/login")
+      ? "Log in — Ripple"
+      : "Ripple — Every voice can start a ripple";
     if (path === "/how-it-works") {
       document.getElementById("how-it-works")?.scrollIntoView();
     } else {
@@ -63,15 +67,18 @@ export default function App() {
       );
     }
   }
-  const page = path.startsWith("/explore")
-    ? "explore"
-    : path.startsWith("/report")
-      ? "report"
-      : path === "/review"
-        ? "review"
-        : path === "/created" || path.startsWith("/ripple/")
-          ? "created"
-          : "home";
+  const page =
+    path.split("?")[0] === "/login"
+      ? "login"
+      : path.startsWith("/explore")
+        ? "explore"
+        : path.startsWith("/report")
+          ? "report"
+          : path === "/review"
+            ? "review"
+            : path === "/created" || path.startsWith("/ripple/")
+              ? "created"
+              : "home";
   const sample = ripples.find((r) => r.id === path.split("/")[2]);
   const result = path === "/created" ? confirmed : sample;
   return (
@@ -89,6 +96,7 @@ export default function App() {
       <AppHeader page={page} />
       <div id="main-content" tabIndex="-1">
         {page === "home" && <Home />}
+        {page === "login" && <Login />}
         {page === "report" && (
           <Report
             draft={draft}
@@ -109,11 +117,10 @@ export default function App() {
               onConfirm={() => {
                 setConfirmed({
                   id: crypto.randomUUID(),
-                  title: review.issue,
-                  category: review.category,
+                  ...buildComplaintPayload(review),
                   location: review.location,
                   time: review.time,
-                  text: draft.text,
+                  text: review.description.trim(),
                   photoName: draft.photo?.name,
                   voices: 1,
                   status: "Reported",

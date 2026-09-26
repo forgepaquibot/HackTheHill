@@ -1702,3 +1702,40 @@
 .explore-heading h1 {
   max-width: 650px;
 }
+
+.report-title-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.report-title-field label {
+  font-weight: 600;
+  color: var(--ink);
+}
+.report-title-field label span {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.report-title-field input,
+.field-copy textarea {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.report-title-field input::placeholder {
+  color: var(--muted);
+}
+.report-title-field p {
+  font-size: 14px;
+  color: var(--muted);
+}
+.field-copy textarea {
+  resize: vertical;
+  min-height: 120px;
+}

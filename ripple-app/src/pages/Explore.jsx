@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Asset, Button, Intro } from "../components/UI";
 import RippleCard from "../components/RippleCard";
 import {
@@ -7,142 +7,282 @@ import {
   categoryIcons,
   filterRipples,
 } from "../data/ripples";
+
+const API_BASE_URL = "http://localhost:8000";
+
 export default function Explore({ followed, toggleFollow }) {
-  const [query, setQuery] = useState(""),
-    [category, setCategory] = useState(""),
-    [notice, setNotice] = useState(""),
-    [near, setNear] = useState(false);
-  const results = filterRipples(ripples, query, category);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [notice, setNotice] = useState("");
+  const [near, setNear] = useState(false);
+
+  const [databaseRipples, setDatabaseRipples] = useState([]);
+  const [loadingDatabaseRipples, setLoadingDatabaseRipples] = useState(true);
+  const [databaseError, setDatabaseError] = useState("");
+
+  /*
+   * Load real topics from PostgreSQL through the FastAPI backend.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDatabaseRipples() {
+      try {
+        setLoadingDatabaseRipples(true);
+        setDatabaseError("");
+
+        const response = await fetch(`${API_BASE_URL}/api/topics`);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (!Array.isArray(data)) {
+          throw new Error("Backend returned an invalid topics response.");
+        }
+
+        if (cancelled) return;
+
+        const formattedTopics = data.map((topic) => {
+          const topicCategory = topic.category || "Other";
+
+          /*
+           * Use the SAME category/icon mapping as the existing
+           * placeholder Ripple cards.
+           */
+          const categoryIndex = categories.indexOf(topicCategory);
+
+          const icon =
+            categoryIndex >= 0
+              ? categoryIcons[categoryIndex]
+              : categoryIcons[0];
+
+          const voiceCount = Number(topic.voices);
+
+          return {
+            id: topic.id,
+
+            title: topic.title || "Community Ripple",
+
+            category: topicCategory,
+
+            /*
+             * RippleCard expects an icon.
+             */
+            icon,
+
+            /*
+             * These are used by other parts of the UI.
+             */
+            description:
+              topic.alignment_rationale ||
+              "A community concern reported by local residents.",
+
+            summary:
+              topic.alignment_rationale ||
+              "A community concern reported by local residents.",
+
+            voices:
+              Number.isFinite(voiceCount) && voiceCount >= 0
+                ? voiceCount
+                : 0,
+
+            createdAt: topic.created_at,
+
+            isDatabaseTopic: true,
+
+            alignment_score: topic.alignment_score,
+
+            alignment_rationale: topic.alignment_rationale,
+
+            /*
+             * Temporary/default card values for fields that
+             * aren't currently stored on the topics table.
+             */
+            location: "Community",
+
+            status: "Under review",
+
+            tone: "progress",
+
+            updated: topic.created_at
+              ? new Date(topic.created_at).toLocaleDateString()
+              : "Recently",
+          };
+        });
+
+        setDatabaseRipples(formattedTopics);
+      } catch (error) {
+        console.error("Failed to load database Ripples:", error);
+
+        if (!cancelled) {
+          setDatabaseError(
+            "We couldn't load community Ripples from the database."
+          );
+          setDatabaseRipples([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingDatabaseRipples(false);
+        }
+      }
+    }
+
+    loadDatabaseRipples();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /*
+   * Put real database Ripples together with the existing
+   * placeholder/test Ripples.
+   */
+  const allRipples = useMemo(() => {
+    return [...databaseRipples, ...ripples];
+  }, [databaseRipples]);
+
+  /*
+   * Apply the existing search/category filtering to BOTH
+   * database and placeholder Ripples.
+   */
+  const results = useMemo(() => {
+    return filterRipples(allRipples, query, category);
+  }, [allRipples, query, category]);
+
+  const handleNearMe = () => {
+    setNear((current) => !current);
+
+    /*
+     * Location filtering isn't connected to the database yet,
+     * so this currently acts as the UI toggle.
+     */
+    setNotice(
+      !near
+        ? "Showing Ripples near your area."
+        : "Showing Ripples from all areas."
+    );
+
+    setTimeout(() => {
+      setNotice("");
+    }, 3000);
+  };
+
+  const handleCategoryChange = (event) => {
+    setCategory(event.target.value);
+  };
+
+  const handleSearchChange = (event) => {
+    setQuery(event.target.value);
+  };
+
   return (
     <main className="explore-page">
-      <div className="explore-heading">
-        <Intro
-          eyebrow="Explore community Ripples"
-          title="What’s affecting your community?"
-        >
-          See shared concerns, understand what’s happening, and follow progress.
-        </Intro>
-        <div className="view-toggle" aria-label="View options">
-          <button
-            onClick={() =>
-              setNotice(
-                "Map view will be available when live location data is connected. You can explore all example Ripples in the list below.",
-              )
-            }
-          >
-            <Asset screen="5:10114" name="imgMap" />
-            Map
-          </button>
-          <button
-            className="selected"
-            aria-pressed="true"
-            onClick={() => setNotice("")}
-          >
-            <Asset screen="5:10114" name="imgList" />
-            List
-          </button>
-        </div>
-      </div>
-      <div className="search-row">
-        <label className="search">
-          <Asset screen="5:10114" name="imgSearch" />
-          <input
-            aria-label="Search by issue or place"
-            placeholder="Search by issue or place"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {query && (
-            <button aria-label="Clear search" onClick={() => setQuery("")}>
-              ×
-            </button>
-          )}
-        </label>
-        <Button secondary onClick={() => setNear(!near)} aria-expanded={near}>
-          <Asset screen="5:10114" name="imgNavigation" />
-          Near me
-        </Button>
-      </div>
-      {near && (
-        <div className="notice">
-          <label>
-            Search an example neighborhood
-            <input
-              placeholder="Try Centretown or Riverside"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+      <Intro
+        eyebrow="Explore"
+        title="See what your community is talking about."
+      >
+        Discover Ripples that people in your community have reported,
+        support the issues that matter to you, and follow their progress.
+      </Intro>
+
+      <section className="explore-controls">
+        <div className="search-wrapper">
+          <label htmlFor="ripple-search" className="sr-only">
+            Search Ripples
           </label>
-          <p>
-            Live nearby search is not connected. These are example locations.
-          </p>
+
+          <input
+            id="ripple-search"
+            type="search"
+            value={query}
+            onChange={handleSearchChange}
+            placeholder="Search community Ripples..."
+            className="search-input"
+          />
         </div>
-      )}
-      <div className="categories" aria-label="Filter by category">
-        {categories.map((c, i) => (
-          <button
-            key={c}
-            className={`category-chip ${category === c ? "selected" : ""}`}
-            aria-pressed={category === c}
-            onClick={() => setCategory(category === c ? "" : c)}
+
+        <div className="filter-row">
+          <label htmlFor="ripple-category" className="sr-only">
+            Filter by category
+          </label>
+
+          <select
+            id="ripple-category"
+            value={category}
+            onChange={handleCategoryChange}
+            className="category-select"
+          >
+            <option value="">All categories</option>
+
+            {categories.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+
+          <Button
+            secondary
+            className={near ? "active" : ""}
+            onClick={handleNearMe}
+            aria-pressed={near}
           >
             <Asset
               screen="5:10114"
-              name={
-                category === c && i === 0
-                  ? "imgBusFront"
-                  : i === 0
-                    ? "imgBusFront1"
-                    : categoryIcons[i]
-              }
+              name="imgMapPin"
             />
-            {c}
-          </button>
-        ))}
-        {category && (
-          <button className="clear-filter" onClick={() => setCategory("")}>
-            Clear filter
-          </button>
-        )}
-      </div>
+            Near me
+          </Button>
+        </div>
+      </section>
+
       {notice && (
-        <p className="notice" role="status">
+        <p className="explore-notice" role="status">
           {notice}
         </p>
       )}
-      <div className="section-heading">
-        <h2>Community Ripples</h2>
-        <small aria-live="polite">
-          {results.length} {query || category ? "results" : "nearby"}
-        </small>
-      </div>
-      <div className="ripple-grid">
-        {results.map((ripple) => (
-          <RippleCard
-            key={ripple.id}
-            ripple={ripple}
-            followed={followed.includes(ripple.id)}
-            onFollow={() => toggleFollow(ripple.id)}
-          />
-        ))}
-      </div>
-      {!results.length && (
-        <div className="empty-state">
+
+      {loadingDatabaseRipples && (
+        <p className="explore-loading" role="status">
+          Loading community Ripples...
+        </p>
+      )}
+
+      {databaseError && (
+        <p className="explore-error" role="alert">
+          {databaseError}
+        </p>
+      )}
+
+      {!loadingDatabaseRipples && results.length === 0 && (
+        <section className="empty-state">
           <h2>No Ripples found</h2>
-          <p>Try another issue, place, or category.</p>
-          <Button
-            secondary
-            onClick={() => {
-              setQuery("");
-              setCategory("");
-            }}
-          >
-            Clear search and filters
-          </Button>
+          <p>
+            Try changing your search or selecting a different category.
+          </p>
+        </section>
+      )}
+
+      {results.length > 0 && (
+        <div className="ripple-grid">
+          {results.map((ripple) => (
+            <RippleCard
+              key={ripple.id}
+              ripple={ripple}
+              followed={followed.includes(ripple.id)}
+              onFollow={() => toggleFollow(ripple.id)}
+            />
+          ))}
         </div>
       )}
+
       <p className="demo-note">
-        Example community data · Followed Ripples are saved on this device.
+        Community Ripples are combined with example data for demonstration.
+        Followed Ripples are saved on this device.
       </p>
     </main>
   );

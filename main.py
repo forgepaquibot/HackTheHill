@@ -21,20 +21,54 @@ from jose import jwt
 from dotenv import load_dotenv
 
 
+# ============================================================
+# Environment
+# ============================================================
+
 load_dotenv()
 load_dotenv(dotenv_path="tiger-cloud-ripple-credentials.env")
 
 
+# ============================================================
+# Database / services
+# ============================================================
+
 from database import get_db_connection
+
 from services import (
     process_and_match_complaint,
     sync_or_create_user,
 )
 
 
+# ============================================================
+# Auth0 configuration
+# ============================================================
+
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
 AUTH0_API_AUDIENCE = os.getenv("AUTH0_API_AUDIENCE")
 
+# ------------------------------------------------------------
+# Local development authentication
+#
+# false = REAL Auth0 authentication is required
+# true  = old local bearer-token behavior is allowed
+#
+# Keep this FALSE when demonstrating the real Auth0 flow.
+# ------------------------------------------------------------
+
+ALLOW_LOCAL_DEV_AUTH = (
+    os.getenv(
+        "ALLOW_LOCAL_DEV_AUTH",
+        "false"
+    ).lower()
+    == "true"
+)
+
+
+# ============================================================
+# FastAPI
+# ============================================================
 
 app = FastAPI(
     title="Grievance & Accountability API",
@@ -75,10 +109,16 @@ class ComplaintSubmitModel(BaseModel):
 # Utility
 # ============================================================
 
-def _get_row_value(row, key: str, index: int = 0):
+def _get_row_value(
+    row,
+    key: str,
+    index: int = 0
+):
     """
-    Supports both dictionary-style and tuple-style PostgreSQL rows.
+    Supports both dictionary-style and tuple-style
+    PostgreSQL rows.
     """
+
     if row is None:
         return None
 
@@ -87,6 +127,7 @@ def _get_row_value(row, key: str, index: int = 0):
 
     try:
         return row[key]
+
     except (TypeError, KeyError, IndexError):
         return row[index]
 
@@ -99,33 +140,55 @@ def get_verified_user(
     credentials: HTTPAuthorizationCredentials = Security(security)
 ) -> str:
     """
-    Validates either:
+    Authenticates the current user.
 
-    1. An Auth0 JWT
-    OR
-    2. A local development test user ID.
+    Production / normal behavior:
+        1. Receives an Auth0 access token.
+        2. Downloads Auth0's JWKS signing keys.
+        3. Verifies the JWT signature.
+        4. Verifies the audience.
+        5. Verifies the issuer.
+        6. Extracts the Auth0 `sub`.
+        7. Ensures the user exists and is verified.
 
-    Then checks that the user is registered and verified
-    in the database.
+    Local development behavior:
+        If ALLOW_LOCAL_DEV_AUTH=true, a non-JWT bearer token
+        can temporarily be treated as a local user ID.
+
+    IMPORTANT:
+        ALLOW_LOCAL_DEV_AUTH should be FALSE when using
+        the actual Auth0 authentication flow.
     """
 
     token = credentials.credentials
 
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing authorization token."
+        )
+
     user_id = None
     email = ""
     name = ""
-    is_verified_claim = True
+    is_verified_claim = False
 
-    # --------------------------------------------------------
-    # Auth0 JWT
-    # --------------------------------------------------------
+    # ========================================================
+    # REAL AUTH0 JWT
+    # ========================================================
 
     if (
         AUTH0_DOMAIN
         and AUTH0_API_AUDIENCE
         and token.count(".") == 2
     ):
+
         try:
+
+            # ------------------------------------------------
+            # Retrieve Auth0 signing keys
+            # ------------------------------------------------
+
             jwks_url = (
                 f"https://{AUTH0_DOMAIN}/.well-known/jwks.json"
             )
@@ -136,7 +199,12 @@ def get_verified_user(
             )
 
             jwks_response.raise_for_status()
+
             jwks = jwks_response.json()
+
+            # ------------------------------------------------
+            # Find JWT signing key
+            # ------------------------------------------------
 
             unverified_header = jwt.get_unverified_header(
                 token
@@ -145,7 +213,9 @@ def get_verified_user(
             rsa_key = {}
 
             for key in jwks.get("keys", []):
+
                 if key.get("kid") == unverified_header.get("kid"):
+
                     rsa_key = {
                         "kty": key["kty"],
                         "kid": key["kid"],
@@ -153,12 +223,22 @@ def get_verified_user(
                         "n": key["n"],
                         "e": key["e"],
                     }
+
                     break
 
             if not rsa_key:
-                raise ValueError(
-                    "Unable to find matching Auth0 signing key."
+
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "Unable to find the Auth0 signing key "
+                        "used for this token."
+                    )
                 )
+
+            # ------------------------------------------------
+            # Verify JWT
+            # ------------------------------------------------
 
             payload = jwt.decode(
                 token,
@@ -168,48 +248,129 @@ def get_verified_user(
                 issuer=f"https://{AUTH0_DOMAIN}/",
             )
 
+            # ------------------------------------------------
+            # Extract Auth0 identity
+            # ------------------------------------------------
+
             user_id = payload.get("sub")
-            email = payload.get("email", "")
+
+            email = payload.get(
+                "email",
+                ""
+            )
 
             name = payload.get(
                 "name",
-                email.split("@")[0] if email else "User"
+                email.split("@")[0]
+                if email
+                else "User"
             )
 
-            is_verified_claim = payload.get(
-                "email_verified",
-                False
+            is_verified_claim = (
+                payload.get(
+                    "email_verified",
+                    False
+                )
+                is True
             )
 
-        except Exception:
-            # Development fallback:
-            # treat token itself as a local user ID.
+            if not user_id:
+
+                raise HTTPException(
+                    status_code=401,
+                    detail=(
+                        "The Auth0 access token does not "
+                        "contain a user ID."
+                    )
+                )
+
+        except HTTPException:
+            raise
+
+        except Exception as error:
+
+            # ------------------------------------------------
+            # NEVER silently accept an invalid JWT unless
+            # local development authentication is explicitly
+            # enabled.
+            # ------------------------------------------------
+
+            if not ALLOW_LOCAL_DEV_AUTH:
+
+                raise HTTPException(
+                    status_code=401,
+                    detail="Invalid Auth0 access token."
+                ) from error
+
+            print(
+                "WARNING: Auth0 JWT verification failed."
+            )
+            print(
+                "Falling back to local development authentication."
+            )
+            print(
+                repr(error)
+            )
+
             user_id = token
 
-    # --------------------------------------------------------
-    # Local development token
-    # --------------------------------------------------------
+            email = ""
+            name = "Verified Citizen"
+            is_verified_claim = True
+
+    # ========================================================
+    # NON-JWT TOKEN
+    # ========================================================
 
     else:
+
+        if not ALLOW_LOCAL_DEV_AUTH:
+
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "A valid Auth0 access token is required."
+                )
+            )
+
+        # ----------------------------------------------------
+        # Old development behavior.
+        #
+        # This is intentionally only available when:
+        #
+        # ALLOW_LOCAL_DEV_AUTH=true
+        # ----------------------------------------------------
+
         user_id = token
 
+        email = ""
+        name = "Verified Citizen"
+        is_verified_claim = True
+
+    # ========================================================
+    # Make sure we have a user ID
+    # ========================================================
+
     if not user_id:
+
         raise HTTPException(
             status_code=401,
             detail="Invalid authorization token."
         )
 
-    # --------------------------------------------------------
-    # Check registration in database
-    # --------------------------------------------------------
+    # ========================================================
+    # Database user verification
+    # ========================================================
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
+
         cursor.execute(
             """
-            SELECT is_verified
+            SELECT
+                is_verified
             FROM users
             WHERE id = %s;
             """,
@@ -219,10 +380,17 @@ def get_verified_user(
         row = cursor.fetchone()
 
         # ----------------------------------------------------
-        # Automatically sync a user who isn't registered yet.
+        # First-time authenticated user
         # ----------------------------------------------------
 
         if not row:
+
+            # For a real Auth0 login, use information obtained
+            # from the verified Auth0 token.
+            #
+            # The fallback values are only relevant when the
+            # development authentication mode is enabled.
+
             sync_email = (
                 email
                 if email
@@ -244,6 +412,10 @@ def get_verified_user(
 
             return user_id
 
+        # ----------------------------------------------------
+        # Existing user
+        # ----------------------------------------------------
+
         is_verified = _get_row_value(
             row,
             "is_verified",
@@ -251,6 +423,7 @@ def get_verified_user(
         )
 
         if not is_verified:
+
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -262,25 +435,49 @@ def get_verified_user(
         return user_id
 
     finally:
+
         cursor.close()
         conn.close()
 
 
 # ============================================================
-# User registration
+# User registration / synchronization
 # ============================================================
 
 @app.post("/api/users/register")
 def register_user(
-    user: UserRegisterModel
+    user: UserRegisterModel,
+    authenticated_user_id: str = Depends(
+        get_verified_user
+    )
 ):
     """
-    Registers or synchronizes an Auth0 user.
+    Registers or synchronizes the authenticated Auth0 user.
+
+    The browser cannot register another user by simply
+    supplying a different ID because the submitted ID must
+    match the authenticated Auth0 `sub`.
     """
 
+    # --------------------------------------------------------
+    # Make sure the submitted identity matches the
+    # authenticated identity.
+    # --------------------------------------------------------
+
+    if user.id != authenticated_user_id:
+
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "The supplied user ID does not match "
+                "the authenticated Auth0 user."
+            )
+        )
+
     try:
+
         result = sync_or_create_user(
-            user.id,
+            authenticated_user_id,
             user.name,
             user.email,
             user.email_verified
@@ -288,11 +485,13 @@ def register_user(
 
         return {
             "status": "success",
+
             "user_id": _get_row_value(
                 result,
                 "id",
                 0
             ),
+
             "is_verified": _get_row_value(
                 result,
                 "is_verified",
@@ -300,10 +499,11 @@ def register_user(
             ),
         }
 
-    except Exception as e:
+    except Exception as error:
+
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(error)
         )
 
 
@@ -314,9 +514,12 @@ def register_user(
 @app.post("/api/scribe-token")
 def create_scribe_token():
 
-    api_key = os.getenv("ELEVENLABS_API_KEY")
+    api_key = os.getenv(
+        "ELEVENLABS_API_KEY"
+    )
 
     if not api_key:
+
         raise HTTPException(
             status_code=503,
             detail=(
@@ -326,24 +529,36 @@ def create_scribe_token():
         )
 
     try:
+
         response = requests.post(
-            "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
+            (
+                "https://api.elevenlabs.io/"
+                "v1/single-use-token/realtime_scribe"
+            ),
+
             headers={
                 "xi-api-key": api_key
             },
+
             timeout=10,
         )
 
         response.raise_for_status()
 
-        token = response.json().get("token")
+        token = response.json().get(
+            "token"
+        )
 
     except requests.HTTPError as error:
 
         if (
             error.response is not None
-            and error.response.status_code in (401, 403)
+            and error.response.status_code in (
+                401,
+                403
+            )
         ):
+
             raise HTTPException(
                 status_code=502,
                 detail=(
@@ -382,6 +597,7 @@ def create_scribe_token():
         ) from error
 
     if not token:
+
         raise HTTPException(
             status_code=502,
             detail=(
@@ -402,7 +618,9 @@ def create_scribe_token():
 @app.post("/api/complaints")
 def submit_or_edit_complaint(
     payload: ComplaintSubmitModel,
-    user_id: str = Depends(get_verified_user)
+    user_id: str = Depends(
+        get_verified_user
+    )
 ):
     """
     Processes a confirmed complaint.
@@ -415,7 +633,8 @@ def submit_or_edit_complaint(
     - creates a new topic when no match exists.
     """
 
-    print("\n==============================")
+    print()
+    print("==============================")
     print("NEW COMPLAINT REQUEST")
     print("==============================")
     print(f"User ID: {user_id}")
@@ -423,6 +642,7 @@ def submit_or_edit_complaint(
     print(f"Category: {payload.category}")
 
     try:
+
         result = process_and_match_complaint(
             user_id=user_id,
             title=payload.title,
@@ -432,25 +652,26 @@ def submit_or_edit_complaint(
 
         print("COMPLAINT RESULT:")
         print(result)
-        print("==============================\n")
+        print("==============================")
+        print()
 
         return result
 
-    except ValueError as ve:
+    except ValueError as error:
 
         raise HTTPException(
             status_code=403,
-            detail=str(ve)
+            detail=str(error)
         )
 
-    except Exception as e:
+    except Exception as error:
 
         print("❌ /api/complaints FAILED:")
-        print(repr(e))
+        print(repr(error))
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(error)
         )
 
 
@@ -461,7 +682,9 @@ def submit_or_edit_complaint(
 @app.post("/api/complaints/{complaint_id}/like")
 def like_complaint(
     complaint_id: str,
-    user_id: str = Depends(get_verified_user)
+    user_id: str = Depends(
+        get_verified_user
+    )
 ):
     """
     Allows a verified user to like a complaint and records
@@ -489,7 +712,11 @@ def like_complaint(
             )
         )
 
-        # Only create a like event when the like was actually new.
+        # ----------------------------------------------------
+        # Only create a like event when the like was actually
+        # new.
+        # ----------------------------------------------------
+
         if cursor.rowcount > 0:
 
             cursor.execute(
@@ -499,7 +726,11 @@ def like_complaint(
                     complaint_id,
                     action_type
                 )
-                VALUES (now(), %s, 'like');
+                VALUES (
+                    now(),
+                    %s,
+                    'like'
+                );
                 """,
                 (complaint_id,)
             )
@@ -511,18 +742,20 @@ def like_complaint(
             "message": "Complaint liked successfully."
         }
 
-    except Exception as e:
+    except Exception as error:
 
         conn.rollback()
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(error)
         )
 
     finally:
+
         cursor.close()
         conn.close()
+
 
 # ============================================================
 # Community topics
@@ -543,6 +776,7 @@ def get_topics(
     cursor = conn.cursor()
 
     try:
+
         query = """
             SELECT
                 t.id,
@@ -560,9 +794,11 @@ def get_topics(
         params = []
 
         if category:
+
             query += """
                 WHERE t.category = %s
             """
+
             params.append(category)
 
         query += """
@@ -586,47 +822,76 @@ def get_topics(
         topics = []
 
         for row in rows:
+
             topics.append({
-                "id": str(_get_row_value(row, "id", 0)),
-                "title": _get_row_value(row, "title", 1),
-                "category": _get_row_value(row, "category", 2),
+                "id": str(
+                    _get_row_value(
+                        row,
+                        "id",
+                        0
+                    )
+                ),
+
+                "title": _get_row_value(
+                    row,
+                    "title",
+                    1
+                ),
+
+                "category": _get_row_value(
+                    row,
+                    "category",
+                    2
+                ),
+
                 "alignment_score": _get_row_value(
                     row,
                     "alignment_score",
                     3
                 ),
+
                 "alignment_rationale": _get_row_value(
                     row,
                     "alignment_rationale",
                     4
                 ),
+
                 "created_at": str(
-                    _get_row_value(row, "created_at", 5)
-                ),
-                "voices": int(
-                    _get_row_value(row, "voices", 6) or 0
+                    _get_row_value(
+                        row,
+                        "created_at",
+                        5
+                    )
                 ),
 
-                # Let RippleCard distinguish real database
-                # topics from the static demo data.
+                "voices": int(
+                    _get_row_value(
+                        row,
+                        "voices",
+                        6
+                    ) or 0
+                ),
+
                 "isDatabaseTopic": True,
             })
 
         return topics
 
-    except Exception as e:
+    except Exception as error:
 
         print("❌ /api/topics FAILED:")
-        print(repr(e))
+        print(repr(error))
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(error)
         )
 
     finally:
+
         cursor.close()
         conn.close()
+
 
 # ============================================================
 # Trending topics
@@ -664,9 +929,11 @@ def get_trending_topics(
         params = []
 
         if category:
+
             query += """
                 AND t.category = %s
             """
+
             params.append(category)
 
         query += """
@@ -687,13 +954,14 @@ def get_trending_topics(
 
         return cursor.fetchall()
 
-    except Exception as e:
+    except Exception as error:
 
         raise HTTPException(
             status_code=500,
-            detail=str(e)
+            detail=str(error)
         )
 
     finally:
+
         cursor.close()
         conn.close()

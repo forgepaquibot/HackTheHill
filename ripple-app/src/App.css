@@ -1,3 +1,118 @@
+.profile-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.profile-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+
+.profile-button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.profile-button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 3px;
+}
+
+.profile-avatar,
+.profile-avatar-fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.profile-avatar {
+  display: block;
+  object-fit: cover;
+}
+
+.profile-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mint);
+  color: var(--teal-dark);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: 54px;
+  right: 0;
+  z-index: 30;
+  width: 250px;
+  padding: 14px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px 12px;
+}
+
+.profile-info strong {
+  font-size: 15px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.profile-info span {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.profile-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0 8px;
+}
+
+.profile-dropdown a,
+.profile-logout {
+  display: block;
+  width: 100%;
+  padding: 11px 10px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: 15px;
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.profile-dropdown a:hover,
+.profile-logout:hover {
+  background: var(--mint);
+}
+
+.profile-logout {
+  color: var(--teal-dark);
+}
+
 .header {
   height: 88px;
   padding: 0 max(5%, calc((100vw - 1296px) / 2));

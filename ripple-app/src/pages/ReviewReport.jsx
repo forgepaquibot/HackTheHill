@@ -8,6 +8,35 @@ export default function ReviewReport({
   photoName,
 }) {
   const [editing, setEditing] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("http://localhost:8000/api/complaints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: review.issue,
+          description: review.issue + " at " + review.location,
+          category: review.category,
+          force_submit: true,
+        }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || "Server error");
+      }
+      onConfirm();
+    } catch (err) {
+      setError("No se pudo conectar al backend: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
   const fields = [
     ["issue", "Issue", "imgMessageCircle"],
     ["location", "Location", "imgMapPin"],
@@ -31,10 +60,7 @@ export default function ReviewReport({
         incorrect.
       </Intro>
       <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onConfirm();
-        }}
+              onSubmit={handleSubmit}
       >
         <section className="summary-card">
           <div className="summary-heading">
@@ -114,9 +140,9 @@ export default function ReviewReport({
           )}
         </section>
         <div className="submit-area">
-          <Button type="submit" disabled={!review.issue.trim()}>
-            <Asset screen="5:9757" name="imgCheck1" />
-            Looks right
+                    {error && <p style={{ color: "red", marginBottom: "1rem" }}>{error}</p>}
+          <Button type="submit" disabled={!review.issue.trim() || loading}>
+            {loading ? "Sending..." : <><Asset screen="5:9757" name="imgCheck1" /> Looks right</>}
           </Button>
           <Reassurance>Nothing is submitted until you confirm.</Reassurance>
           <p className="demo-note">

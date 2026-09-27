@@ -19,6 +19,7 @@ function route() {
 function readFollows() {
   try {
     const value = JSON.parse(localStorage.getItem("ripple-follows") || "[]");
+
     return Array.isArray(value)
       ? value.filter((id) => typeof id === "string")
       : [];
@@ -30,15 +31,18 @@ function readFollows() {
 // Retrieves or initializes a local user ID for Auth0 session testing
 function getAuthToken() {
   let userId = localStorage.getItem("ripple_user_id");
+
   if (!userId) {
     userId = `user_${crypto.randomUUID()}`;
     localStorage.setItem("ripple_user_id", userId);
   }
+
   return userId;
 }
 
 export default function App() {
   const [path, setPath] = useState(route);
+
   const [draft, setDraft] = useState({
     title: "",
     text: "",
@@ -46,20 +50,27 @@ export default function App() {
     category: "",
     photo: null,
   });
+
   const [review, setReview] = useState(null);
   const [confirmed, setConfirmed] = useState(null);
   const [followed, setFollowed] = useState(readFollows);
   const [storageError, setStorageError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ============================================================
   // Sync user with FastAPI / Auth0 backend on app load
+  // ============================================================
+
   useEffect(() => {
     const syncUserWithBackend = async () => {
       const userId = getAuthToken();
+
       try {
         await fetch(`${API_BASE_URL}/api/users/register`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
             id: userId,
             name: "Verified Citizen",
@@ -68,21 +79,34 @@ export default function App() {
           }),
         });
       } catch (err) {
-        console.error("Failed to sync user with backend:", err);
+        console.error(
+          "Failed to sync user with backend:",
+          err
+        );
       }
     };
 
     syncUserWithBackend();
   }, []);
 
+  // ============================================================
   // Listen to hash changes in URL
+  // ============================================================
+
   useEffect(() => {
     const change = () => setPath(route());
+
     window.addEventListener("hashchange", change);
-    return () => window.removeEventListener("hashchange", change);
+
+    return () => {
+      window.removeEventListener("hashchange", change);
+    };
   }, []);
 
+  // ============================================================
   // Page titles and scroll management
+  // ============================================================
+
   useEffect(() => {
     document.title = path.startsWith("/organization")
       ? "Community Listening — Ripple"
@@ -91,26 +115,41 @@ export default function App() {
       : "Ripple — Every voice can start a ripple";
 
     if (path === "/how-it-works") {
-      document.getElementById("how-it-works")?.scrollIntoView();
+      document
+        .getElementById("how-it-works")
+        ?.scrollIntoView();
     } else {
       window.scrollTo(0, 0);
+
       const focusTarget = path.includes("mode=type")
         ? document.querySelector("textarea")
         : document.querySelector("h1");
-      focusTarget?.focus({ preventScroll: true });
+
+      focusTarget?.focus({
+        preventScroll: true,
+      });
     }
   }, [path]);
 
+  // ============================================================
   // Sync likes with backend
+  // ============================================================
+
   async function toggleFollow(id) {
     const isFollowing = followed.includes(id);
+
     const next = isFollowing
       ? followed.filter((x) => x !== id)
       : [...followed, id];
+
     setFollowed(next);
 
     try {
-      localStorage.setItem("ripple-follows", JSON.stringify(next));
+      localStorage.setItem(
+        "ripple-follows",
+        JSON.stringify(next)
+      );
+
       setStorageError("");
     } catch {
       setStorageError(
@@ -121,72 +160,173 @@ export default function App() {
     if (!isFollowing) {
       try {
         const token = getAuthToken();
-        await fetch(`${API_BASE_URL}/api/complaints/${id}/like`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+
+        await fetch(
+          `${API_BASE_URL}/api/complaints/${id}/like`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
       } catch (err) {
-        console.error("Could not sync like with backend:", err);
+        console.error(
+          "Could not sync like with backend:",
+          err
+        );
       }
     }
   }
 
+  // ============================================================
   // Submit Complaint to FastAPI backend
+  // ============================================================
+
   async function handleConfirmReport() {
     setIsSubmitting(true);
     setStorageError("");
 
     try {
       const token = getAuthToken();
+
       const payload = {
-        title: review?.issue || draft.title || draft.text.slice(0, 60) || "Public Grievance",
+        title:
+          review?.issue ||
+          draft.title ||
+          draft.text.slice(0, 60) ||
+          "Public Grievance",
+
         description: draft.text,
-        category: draft.category || review?.category || "General",
+
+        category:
+          draft.category ||
+          review?.category ||
+          "General",
       };
 
-      const res = await fetch(`${API_BASE_URL}/api/complaints`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      console.log("=== SUBMITTING COMPLAINT ===");
+      console.log("Payload:", payload);
+
+      const res = await fetch(
+        `${API_BASE_URL}/api/complaints`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+
+          body: JSON.stringify(payload),
+        }
+      );
 
       if (!res.ok) {
         const errData = await res.json();
-        throw new Error(errData.detail || "Submission failed");
+
+        throw new Error(
+          errData.detail || "Submission failed"
+        );
       }
 
       const data = await res.json();
 
-      setConfirmed({
-        id: data.complaint_id,
-        topic_id: data.topic_id,
-        title: review?.issue || payload.title,
-        category: payload.category,
-        location: review?.location || draft.location,
-        time: "Just now",
-        text: draft.text,
-        photoName: draft.photo?.name,
-        voices: 1,
-        status: "Reported",
-        apiMessage: data.message,
-      });
+      console.log("=== BACKEND RESPONSE ===");
+      console.log("Complaint result:", data);
+      console.log("Voices:", data.voices);
+      console.log("Status:", data.status);
+      console.log("isSimilar:", data.isSimilar);
+      console.log("Topic:", data.topic_title);
 
+      // ========================================================
+      // IMPORTANT:
+      // Preserve the actual values returned by the backend.
+      // ========================================================
+
+      const confirmedRipple = {
+        id: data.complaint_id,
+
+        topic_id: data.topic_id,
+
+        // Use the topic title returned by the backend when
+        // the complaint matched an existing community topic.
+        title:
+          data.topic_title ||
+          review?.issue ||
+          payload.title,
+
+        topic_title: data.topic_title,
+
+        category:
+          data.category ||
+          payload.category,
+
+        location:
+          review?.location ||
+          draft.location,
+
+        time: "Just now",
+
+        text: draft.text,
+
+        description: draft.text,
+
+        photoName: draft.photo?.name,
+
+        // ======================================================
+        // THESE COME DIRECTLY FROM THE BACKEND
+        // ======================================================
+
+        voices:
+          Number.isFinite(Number(data.voices))
+            ? Number(data.voices)
+            : 1,
+
+        status:
+          data.status || "created",
+
+        isSimilar:
+          data.isSimilar === true,
+
+        similarity:
+          data.similarity,
+
+        message:
+          data.message,
+
+        apiMessage:
+          data.message,
+      };
+
+      console.log("=== RIPPLE OBJECT FOR FRONTEND ===");
+      console.log(confirmedRipple);
+
+      // Store the COMPLETE backend result in React state.
+      setConfirmed(confirmedRipple);
+
+      // Navigate to the Ripple-created page.
       window.location.hash = "/created";
     } catch (err) {
-      console.error("Failed to submit report:", err);
-      setStorageError(`Backend error: ${err.message}`);
+      console.error(
+        "Failed to submit report:",
+        err
+      );
+
+      setStorageError(
+        `Backend error: ${err.message}`
+      );
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  // ============================================================
   // Determine active view
+  // ============================================================
+
   const basePath = path.split("?")[0];
+
   const page =
     basePath === "/login"
       ? "login"
@@ -196,12 +336,23 @@ export default function App() {
       ? "report"
       : path === "/review"
       ? "review"
-      : path === "/created" || path.startsWith("/ripple/")
+      : path === "/created" ||
+        path.startsWith("/ripple/")
       ? "created"
       : "home";
 
-  const sample = ripples.find((r) => r.id === path.split("/")[2]);
-  const result = path === "/created" ? confirmed : sample;
+  const sample = ripples.find(
+    (r) => r.id === path.split("/")[2]
+  );
+
+  const result =
+    path === "/created"
+      ? confirmed
+      : sample;
+
+  // ============================================================
+  // Render
+  // ============================================================
 
   return (
     <>
@@ -210,15 +361,23 @@ export default function App() {
         href="#main-content"
         onClick={(e) => {
           e.preventDefault();
-          document.getElementById("main-content")?.focus();
+
+          document
+            .getElementById("main-content")
+            ?.focus();
         }}
       >
         Skip to content
       </a>
 
-      {!path.startsWith("/organization") && <AppHeader page={page} />}
+      {!path.startsWith("/organization") && (
+        <AppHeader page={page} />
+      )}
 
-      <div id="main-content" tabIndex="-1">
+      <div
+        id="main-content"
+        tabIndex="-1"
+      >
         {path.startsWith("/organization") ? (
           <Organization path={path} />
         ) : (
@@ -231,10 +390,18 @@ export default function App() {
           <Report
             draft={draft}
             setDraft={setDraft}
-            mode={new URLSearchParams(path.split("?")[1]).get("mode")}
+            mode={
+              new URLSearchParams(
+                path.split("?")[1]
+              ).get("mode")
+            }
             onReview={() => {
-              setReview(prepareReview(draft));
-              window.location.hash = "/review";
+              setReview(
+                prepareReview(draft)
+              );
+
+              window.location.hash =
+                "/review";
             }}
           />
         )}
@@ -250,8 +417,14 @@ export default function App() {
             />
           ) : (
             <main className="empty-state">
-              <h1>Start with your experience.</h1>
-              <a className="button" href="#/report">
+              <h1>
+                Start with your experience.
+              </h1>
+
+              <a
+                className="button"
+                href="#/report"
+              >
                 Tell us what happened
               </a>
             </main>
@@ -262,25 +435,41 @@ export default function App() {
             <RippleCreated
               ripple={result}
               isReport={path === "/created"}
-              followed={followed.includes(result.id)}
-              onFollow={() => toggleFollow(result.id)}
+              followed={followed.includes(
+                result.id
+              )}
+              onFollow={() =>
+                toggleFollow(result.id)
+              }
             />
           ) : (
             <main className="empty-state">
-              <h1>Find your next Ripple.</h1>
-              <a className="button" href="#/explore">
+              <h1>
+                Find your next Ripple.
+              </h1>
+
+              <a
+                className="button"
+                href="#/explore"
+              >
                 Explore Ripples
               </a>
             </main>
           ))}
 
         {page === "explore" && (
-          <Explore followed={followed} toggleFollow={toggleFollow} />
+          <Explore
+            followed={followed}
+            toggleFollow={toggleFollow}
+          />
         )}
       </div>
 
       {storageError && (
-        <p className="notice" role="status">
+        <p
+          className="notice"
+          role="status"
+        >
           {storageError}
         </p>
       )}

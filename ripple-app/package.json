@@ -11,6 +11,7 @@
     "test": "node --test src/data/*.test.js"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.27.0",
     "@elevenlabs/react": "^1.15.2",
     "@tailwindcss/postcss": "^4.3.3",
     "react": "^19.2.8",
